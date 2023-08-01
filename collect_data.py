@@ -63,28 +63,38 @@ def main():
     # Get the previous month and year, if possible, if an anime was released within 10 days of the beginning of the month
     anime_df = anime_df.withColumn("previous_month", (functions.when(functions.col("day") <= 10, functions.col("month") - 1).otherwise(None))) # get the previous month
     anime_df = anime_df.withColumn("previous_year", functions.when(functions.col("previous_month") == 0, functions.col("year") - 1).otherwise(None))
-    anime_df = anime_df.withColumn("previous_month", (functions.when(functions.col("previous_month") == 0, 12)))
+    anime_df = anime_df.withColumn("previous_month", (functions.when(functions.col("previous_month") == 0, 12)).otherwise(functions.col("previous_month")))
     
     # Get the next month and year, if possible, if an anime was released within 21 days of the end of the month
     anime_df = anime_df.withColumn("next_month", (functions.when(functions.col("day") >= 21, functions.col("month") + 1).otherwise(None))) # get the next month
     anime_df = anime_df.withColumn("next_year", functions.when(functions.col("next_month") == 13, functions.col("year") + 1).otherwise(None))
-    anime_df = anime_df.withColumn("next_month", (functions.when(functions.col("next_month") == 13, 1)))
+    anime_df = anime_df.withColumn("next_month", (functions.when(functions.col("next_month") == 13, 1)).otherwise(functions.col("next_month")))
+    anime_df.show()
     
     
     # Testing for reddit-subset in local data
-    reddit_submissions = spark.read.json("reddit-subset/submissions", schema=schema.submissions_schema)
-    reddit_comments = spark.read.json("reddit-subset/comments", schema=schema.comments_schema)
+    reddit_submissions = spark.read.json("reddit-subset/submissions", schema=schema.submissions_schema).cache()
+    reddit_comments = spark.read.json("reddit-subset/comments", schema=schema.comments_schema).cache()
     # reddit_submissions = spark.read.json(reddit_submissions_path, schema=submissions_schema)
     # reddit_comments = spark.read.json(reddit_comments_path, schema=comments_schema)
     
     subs = anime_df.select(functions.collect_list(anime_df.subreddit)).first()[0] # get the subreddits from my dataframe
+    release_month_submissions = reddit_submissions.join(anime_df.select(["year", "month", "subreddit"]).distinct(), on=["year", "month", "subreddit"], how="inner")
+    release_month_comments = reddit_comments.join(anime_df.select(["year", "month", "subreddit"]).distinct(), on=["year", "month", "subreddit"], how="inner")
     
-    reddit_submissions.where(reddit_submissions['subreddit'].isin(subs)) \
-        .where(reddit_submissions['year'] >= 2020 & reddit_submissions['month'] >= 6) \
-        .write.json(output + '/submissions', mode='overwrite', compression='gzip')
+    print("Number of rows in submissions: " + str(release_month_submissions.count()))
+    print("Number of rows in comments: " + str(release_month_comments.count()))
+    # reddit_submissions = (reddit_submissions.groupBy(reddit_submissions["subreddit"])).agg(
+    #     functions.count(reddit_submissions["author"])
+    # )
+    # reddit_submissions.show()
     
-    reddit_comments.where(reddit_comments['subreddit'].isin(subs)) \
-        .where(reddit_comments['year'] >= 2020 & reddit_comments['month'] >= 6) \
-        .write.json(output + '/comments', mode='overwrite', compression='gzip')
+    # reddit_submissions.where(reddit_submissions['subreddit'].isin(subs)) \
+    #     .where(reddit_submissions['year'] == anime_df["year"] & reddit_submissions['month'] == anime_df["month"]) \
+    #     .write.json(output + '/submissions', mode='overwrite', compression='gzip')
+    
+    # reddit_comments.where(reddit_comments['subreddit'].isin(subs)) \
+    #     .where(reddit_submissions['year'] == anime_df["year"] & reddit_submissions['month'] == anime_df["month"]) \
+    #     .write.json(output + '/comments', mode='overwrite', compression='gzip')
     
 main()
