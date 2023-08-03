@@ -2,37 +2,8 @@ import sys
 import time
 from jikanpy import Jikan
 assert sys.version_info >= (3, 8)
-from pyspark.sql import SparkSession, functions, types, Row
-
-reddit_submissions_path = '/courses/datasets/reddit_submissions_repartitioned/'
-reddit_comments_path = '/courses/datasets/reddit_comments_repartitioned/'
-output = 'reddit-subset'
-
-comments_schema = types.StructType([
-    types.StructField('archived', types.BooleanType()),
-    types.StructField('author', types.StringType()),
-    types.StructField('author_flair_css_class', types.StringType()),
-    types.StructField('author_flair_text', types.StringType()),
-    types.StructField('body', types.StringType()),
-    types.StructField('controversiality', types.LongType()),
-    types.StructField('created_utc', types.StringType()),
-    types.StructField('distinguished', types.StringType()),
-    types.StructField('downs', types.LongType()),
-    types.StructField('edited', types.StringType()),
-    types.StructField('gilded', types.LongType()),
-    types.StructField('id', types.StringType()),
-    types.StructField('link_id', types.StringType()),
-    types.StructField('name', types.StringType()),
-    types.StructField('parent_id', types.StringType()),
-    types.StructField('retrieved_on', types.LongType()),
-    types.StructField('score', types.LongType()),
-    types.StructField('score_hidden', types.BooleanType()),
-    types.StructField('subreddit', types.StringType()),
-    types.StructField('subreddit_id', types.StringType()),
-    types.StructField('ups', types.LongType()),
-    types.StructField('year', types.IntegerType()),
-    types.StructField('month', types.IntegerType()),
-])
+from pyspark.sql import SparkSession, functions, types
+from scipy.stats import normaltest
 
 submissions_schema = types.StructType([
     types.StructField('archived', types.BooleanType()),
@@ -80,9 +51,11 @@ anime_schema = types.StructType([
     types.StructField('subreddit', types.StringType()),
     types.StructField('year', types.IntegerType()),
     types.StructField('month', types.IntegerType()),
+    types.StructField('day', types.IntegerType()),
 ])
 
-def insert_jikan_anime(code, wait_time=0):
+### Helper functions to do small tasks ###
+def insert_jikan_anime(code, wait_time=1):
     jikan = Jikan()
     anime = jikan.anime(code)
     time.sleep(wait_time)
@@ -92,39 +65,38 @@ def filter_date(date):
     date = date.split("-")
     year = int(date[0])
     month = int(date[1])
-    return year, month
+    day = int((date[2].split("T"))[0])
+    return year, month, day
+    
+def perform_statistic_test(num_comments_list):
+    print(normaltest(num_comments_list))
+        
 
 def main():
-    spark = SparkSession.builder.appName("reddit data").getOrCreate()
+    # Spark Setup
+    spark = SparkSession.builder.appName("reddit anime/manga data").getOrCreate()
     assert spark.version >= '3.2'
     spark.sparkContext.setLogLevel('WARN')
     
-    # Testing for reddit-subset in local data
-    reddit_submissions = spark.read.json("reddit-subset/submissions", schema=submissions_schema)
-    reddit_comments = spark.read.json("reddit-subset/comments", schema=comments_schema)
+    # Directory Paths
+    reddit_submissions_path = sys.argv[1]
     
-    # Get anime releases from MyAnimeList #
+    ### Get anime releases from MyAnimeList ###
     
     # Need to get anime releases manually as there is no formula to it
-    jujutsu_kaisen = insert_jikan_anime(40748)
-    my_hero_academia_fifth = insert_jikan_anime(41587)
-    spy_x_family = insert_jikan_anime(50265)
     # JikanPy has a rate limit of 3 requests per second and won't work with more than 3 requests unless we wait/sleep for a second
-    rezero_season_two = insert_jikan_anime(39587,1)
-    kaguya_sama_ultra_romantic = insert_jikan_anime(43608,1)
-    demon_slayer_entertainment_district = insert_jikan_anime(47778,1)
-    attack_on_titan_final_season_two = insert_jikan_anime(48583,1)
-    komi_san = insert_jikan_anime(48926,1)
+    jujutsu_kaisen = insert_jikan_anime(40748)
+    spy_x_family = insert_jikan_anime(50265)
+    rezero = insert_jikan_anime(31240)
+    demon_slayer = insert_jikan_anime(38000)
+    komi_san = insert_jikan_anime(48926)
     
     # Format: Subreddit_name: MyAnimeList data
     anime_list = [
         ("JuJutsuKaisen", jujutsu_kaisen),
-        ("BokuNoHeroAcademia", my_hero_academia_fifth),
         ("SpyxFamily", spy_x_family),
-        ("Re_Zero", rezero_season_two),
-        ("Kaguya_sama", kaguya_sama_ultra_romantic),
-        ("KimetsuNoYaiba", demon_slayer_entertainment_district),
-        ("ShingekiNoKyojin", attack_on_titan_final_season_two),
+        ("Re_Zero", rezero),
+        ("KimetsuNoYaiba", demon_slayer),
         ("Komi_san", komi_san)
     ]
     
@@ -132,23 +104,53 @@ def main():
     anime_list = [(subreddit, filter_date(data["data"]["aired"]["from"])) 
                   for subreddit, data in anime_list]
     
-    anime_list = [(subreddit, year, month) for subreddit, (year, month) in anime_list]
+    anime_list = [(subreddit, year, month, day) for subreddit, (year, month, day) in anime_list]
     
     anime_df = spark.createDataFrame(anime_list, schema=anime_schema).cache()
-    # anime_df.show()
     
-    # print(anime_list)
+    # Get the previous month and year, if possible, if an anime was released within 10 days of the beginning of the month
+    anime_df = anime_df.withColumn("previous_month", (functions.when(functions.col("day") <= 10, functions.col("month") - 1).otherwise(-1))) # get the previous month
+    
+    anime_df = anime_df.withColumn("previous_year", functions.when(functions.col("previous_month") == 0, functions.col("year") - 1).when(functions.col("previous_month") == -1, -1).otherwise(functions.col("year"))) # If our month is #0, get the previous year. Else if, our month is null, keep it at null. Else, set the previous_year as the current year (needed for filtering from the Cluster)
+    
+    anime_df = anime_df.withColumn("previous_month", (functions.when(functions.col("previous_month") == 0, 12)).otherwise(functions.col("previous_month"))) # ensure that we have a valid month (e.g. Jan -> Dec)
+
+    ### Getting data from the SFU Reddit cluster ###
+    
+    # Read the submissions files and filter based on the month and year of an anime release from anime_df
     reddit_submissions = spark.read.json(reddit_submissions_path, schema=submissions_schema)
-    reddit_comments = spark.read.json(reddit_comments_path, schema=comments_schema)
     
-    subs = anime_df.select(functions.collect_list(anime_df.subreddit)).first()[0] # get the subreddits from my dataframe
-    # print(subs)
-    reddit_submissions.where(reddit_submissions['subreddit'].isin(subs)) \
-        .where(reddit_submissions['year'] >= 2020 & reddit_submissions['month'] >= 6) \
-        .write.json(output + '/submissions', mode='overwrite', compression='gzip')
+    release_month_submissions = reddit_submissions.join(anime_df.distinct(), on=(
+        (reddit_submissions.subreddit == anime_df.subreddit) & (reddit_submissions.year == anime_df.year) & (reddit_submissions.month == anime_df.month) 
+        ), how="inner"
+    ).drop(anime_df.year, anime_df.month, anime_df.subreddit)
     
-    reddit_comments.where(reddit_comments['subreddit'].isin(subs)) \
-        .where(reddit_comments['year'] >= 2020 & reddit_comments['month'] >= 6) \
-        .write.json(output + '/comments', mode='overwrite', compression='gzip')
+    previous_month_submissions = reddit_submissions.join(anime_df.distinct(), on=(
+        (reddit_submissions.subreddit == anime_df.subreddit) & (reddit_submissions.year == anime_df.previous_year) & (reddit_submissions.month == anime_df.previous_month)
+        ), how="inner"
+    ).drop(anime_df.year, anime_df.month, anime_df.subreddit)
+    
+    # Used to write to an output folder if you're running the program on the cluster
+    if len(sys.argv) > 2:
+        output = sys.argv[2]
+        combined_submissions = release_month_submissions.union(previous_month_submissions)
+        combined_submissions.write.json(output + "/submissions", mode='overwrite', compression='gzip')
+    
+    # Combine the number of comments from each post in a subreddit into a list by grouping it based on the subreddit's name
+    release_month_sub_grouped_comments = release_month_submissions.groupBy("subreddit").agg(
+        functions.collect_list("num_comments").alias("num_comments")
+    )
+    previous_month_sub_grouped_comments = previous_month_submissions.groupBy("subreddit").agg(
+        functions.collect_list("num_comments").alias("num_comments")
+    )
+    
+    ### Calculating p-values ###
+    release_month_sub_grouped_comments.foreach(
+        lambda row: perform_statistic_test(row["num_comments"])
+    )
+    
+    previous_month_sub_grouped_comments.foreach(
+        lambda row: perform_statistic_test(row["num_comments"])
+    )
     
 main()
