@@ -20,6 +20,18 @@ You will need the following tools to run the program:
 - Spark DataFrames (3.4.1+)
 - [JikanPy](https://github.com/abhinavk99/jikanpy): A Python wrapper for Jikan, an unofficial PHP API for MyAnimeList which holds anime release dates and more
 
+## Running the Program
+
+As getting SFU Cluster data takes a while, we have devised two ways to run this program. Using the following command lines, you can run each one depending on what tools you are have:
+
+**Locally**:
+
+> *spark-submit collect_data.py reddit-subset/submissions reddit-subset/comments
+
+**SFU Cluster**:
+
+> *spark-submit collect_data.py /courses/datasets/reddit_submissions_repartitioned/ /courses/datasets/reddit_comments_repartitioned/ reddit-subset
+
 ## Authors
 
 - **Ike Chan**
