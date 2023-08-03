@@ -117,22 +117,26 @@ def main():
          .when(F.col("previous_month") == -1, -1)
          .otherwise(F.col("year"))) # If our month is #0, get the previous year. Else if, our month is null, keep it at null. Else, set the previous_year as the current year (needed for filtering from the Cluster)
     
-    anime_df = anime_df.withColumn("previous_month", (F.when(F.col("previous_month") == 0, 12)).otherwise(F.col("previous_month"))) # ensure that we have a valid month (e.g. Jan -> Dec)
+    anime_df = anime_df.withColumn("previous_month",
+        F.when(F.col("previous_month") == 0, 12)
+         .otherwise(F.col("previous_month"))) # ensure that we have a valid month (e.g. Jan -> Dec)
 
     ### Getting data from the SFU Reddit cluster ###
     
     # Read the submissions files and filter based on the month and year of an anime release from anime_df
     reddit_submissions = spark.read.json(reddit_submissions_path, schema=submissions_schema)
     
-    release_month_submissions = reddit_submissions.join(anime_df.distinct(), on=(
-        (reddit_submissions.subreddit == anime_df.subreddit) & (reddit_submissions.year == anime_df.year) & (reddit_submissions.month == anime_df.month) 
-        ), how="inner"
-    ).drop(anime_df.year, anime_df.month, anime_df.subreddit)
+    release_month_submissions = (reddit_submissions
+        .join(anime_df.distinct(),
+            on=((reddit_submissions.subreddit == anime_df.subreddit) & (reddit_submissions.year == anime_df.year) & (reddit_submissions.month == anime_df.month)),
+            how="inner")
+        .drop(anime_df.year, anime_df.month, anime_df.subreddit))
     
-    previous_month_submissions = reddit_submissions.join(anime_df.distinct(), on=(
-        (reddit_submissions.subreddit == anime_df.subreddit) & (reddit_submissions.year == anime_df.previous_year) & (reddit_submissions.month == anime_df.previous_month)
-        ), how="inner"
-    ).drop(anime_df.year, anime_df.month, anime_df.subreddit)
+    previous_month_submissions = (reddit_submissions
+        .join(anime_df.distinct(),
+            on=((reddit_submissions.subreddit == anime_df.subreddit) & (reddit_submissions.year == anime_df.previous_year) & (reddit_submissions.month == anime_df.previous_month)),
+            how="inner")
+        .drop(anime_df.year, anime_df.month, anime_df.subreddit))
     
     # Used to write to an output folder if you're running the program on the cluster
     if len(sys.argv) > 2:
@@ -141,12 +145,12 @@ def main():
         combined_submissions.write.json(output + "/submissions", mode='overwrite', compression='gzip')
     
     # Combine the number of comments from each post in a subreddit into a list by grouping it based on the subreddit's name
-    release_month_sub_grouped_comments = release_month_submissions.groupBy("subreddit").agg(
-        F.collect_list("num_comments").alias("num_comments")
-    )
-    previous_month_sub_grouped_comments = previous_month_submissions.groupBy("subreddit").agg(
-        F.collect_list("num_comments").alias("num_comments")
-    )
+    release_month_sub_grouped_comments = (release_month_submissions
+        .groupBy("subreddit")
+        .agg(F.collect_list("num_comments").alias("num_comments")))
+    previous_month_sub_grouped_comments = (previous_month_submissions
+        .groupBy("subreddit")
+        .agg(F.collect_list("num_comments").alias("num_comments")))
     
     ### Calculating p-values ###
     release_month_sub_grouped_comments.foreach(
