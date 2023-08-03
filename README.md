@@ -16,6 +16,7 @@ In this project, we applied statistical models to analyze shifts in p-values to 
 
 You will need the following tools to run the program:
 
+- Git
 - Python (3.8+)
 - Spark DataFrames (3.4.1+)
 - [JikanPy](https://github.com/abhinavk99/jikanpy): A Python wrapper for Jikan, an unofficial PHP API for MyAnimeList which holds anime release dates and more
@@ -26,13 +27,18 @@ As getting SFU Cluster data takes a while, we have devised two ways to run this 
 
 **Locally**:
 
-> *spark-submit collect_data.py reddit-subset/submissions reddit-subset/comments
+> spark-submit collect_data.py reddit-subset/submissions
 
 **SFU Cluster**:
 
-> *spark-submit collect_data.py /courses/datasets/reddit_submissions_repartitioned/ /courses/datasets/reddit_comments_repartitioned/ reddit-subset
+> spark-submit collect_data.py /courses/datasets/reddit_submissions_repartitioned/ reddit-subset
 
 ## Authors
 
-- **Ike Chan**
-- **Lucas Lee**
+- **Ike Chan** - [ikec@sfu.ca](mailto:ikec@sfu.ca) / [GitHub](https://github.com/Jack41784090)
+- **Lucas Lee** - [ldl5@sfu.ca](mailto:ldl5@sfu.ca) / [GitHub](https://github.com/LucasDLee)
+
+## Acknowledgments
+
+- README template adapated from [https://gist.github.com/PurpleBooth/109311bb0361f32d87a2](https://gist.github.com/PurpleBooth/109311bb0361f32d87a2)
+- Reddit data from the [SFU cluster](cluster.cs.sfu.ca)
