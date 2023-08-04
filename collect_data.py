@@ -104,7 +104,6 @@ def f(anime):
     month = int(date[1])
     day = int((date[2].split("T"))[0])
     return name, year, month, day
-    
         
 def main():
     spark = SparkSession.Builder.appName(SparkSession.builder, "reddit data").getOrCreate()
@@ -117,7 +116,6 @@ def main():
     # JikanPy has a rate limit of 3 requests per second and won't work with more than 3 requests unless we wait/sleep for a second
     jujutsu_kaisen = insert_jikan_anime(40748)
     spy_x_family = insert_jikan_anime(50265)
-    # rezero = insert_jikan_anime(31240)
     demon_slayer = insert_jikan_anime(38000)
     komi_san = insert_jikan_anime(48926)
     
@@ -126,7 +124,6 @@ def main():
     anime_info = [
         ("JuJutsuKaisen", jujutsu_kaisen),
         ("SpyxFamily", spy_x_family),
-        # ("Re_Zero", rezero),
         ("KimetsuNoYaiba", demon_slayer),
         ("Komi_san", komi_san)
     ]
@@ -153,6 +150,7 @@ def main():
     # Read the submissions files and filter based on the month and year of an anime release from anime_df
     r_sub = spark.read.json(reddit_submissions_path, schema=submissions_schema)
     r_com = spark.read.json(reddit_comments_path, schema=comments_schema)
+
     
     # Filter the data from r_sub to match with our anime data
     release_month_submissions = (r_sub
@@ -181,7 +179,7 @@ def main():
     ### Visualizations ###
     seaborn.set()
     plt.figure(figsize=(10, 6))
-    bar_width = 0.4
+    bar_width = 0.4\
 
     index = range(len(grouped_sub_comments))
     plt.bar(index, grouped_sub_comments['release_total_comments'], width=bar_width, label='After Release')
@@ -216,10 +214,10 @@ def main():
         coms = r_com.where(r_com['subreddit'] == name).cache()
 
         # all submissions and comments before and after release
-        sbms_bf = sbms.where(sbms_bf['year'] < year | (sbms_bf['year'] == year & sbms_bf['month'] < month)).cache()
-        sbms_af = sbms.where(sbms_af['year'] > year | (sbms_af['year'] == year & sbms_af['month'] >= month)).cache()
-        coms_bf = coms.where(coms_bf['year'] < year | (coms_bf['year'] == year & coms_bf['month'] < month)).cache()
-        coms_af = coms.where(coms_af['year'] > year | (coms_af['year'] == year & coms_af['month'] >= month)).cache()
+        sbms_bf = sbms.where((sbms['year'] < year) | ((sbms['year'] == year) & (sbms['month'] < month))).cache()
+        sbms_af = sbms.where((sbms['year'] > year) | ((sbms['year'] == year) & (sbms['month'] >= month))).cache()
+        coms_bf = coms.where((coms['year'] < year) | ((coms['year'] == year) & (coms['month'] < month))).cache()
+        coms_af = coms.where((coms['year'] > year) | ((coms['year'] == year) & (coms['month'] >= month))).cache()
 
         # how many submissions / comments are there per month, separated before and after release?
         sbms_byMonth_bf = (sbms_bf
@@ -239,11 +237,14 @@ def main():
         # mann whiteney
         # by month
         # x = byMonth_bf, y = byMonth_af, Ha = any x < any y
-        mw_month_sbm = mannwhitneyu(sbms_byMonth_bf['count'], sbms_byMonth_af['count'], alternative='greater')
-        mw_month_com = mannwhitneyu(coms_byMonth_bf['count'], coms_byMonth_af['count'], alternative='greater')
-
-        # individually
-        mw_ind_sbmCom = mannwhitneyu(sbms_bf['num_comments'], sbms_af['num_comments'], alternative='greater')
+        x1 = sbms_byMonth_bf.select('count').rdd.flatMap(lambda x: x).collect()
+        y1 = sbms_byMonth_af.select('count').rdd.flatMap(lambda x: x).collect()
+        x2 = coms_byMonth_bf.select('count').rdd.flatMap(lambda x: x).collect()
+        y2 = coms_byMonth_af.select('count').rdd.flatMap(lambda x: x).collect()
+        mw_month_sbm = mannwhitneyu(x1, y1, alternative='less')
+        mw_month_com = mannwhitneyu(x2, y2, alternative='less')
+        print(x1,y1,x2,y2)
+        print(mw_month_com, mw_month_sbm)
 
         # append to contingency, add pre release month activity to [0] and after release to [1]
         previous_month_submissions = (sbms_bf
@@ -251,10 +252,15 @@ def main():
                 on=((sbms_bf.year == anime_df.previous_year) & (sbms_bf.month == anime_df.previous_month)),
                 how="inner")
             .drop(anime_df.year, anime_df.month, anime_df.subreddit))
-        contingency[0] += previous_month_submissions['num_comments']
-        contingency[1] += sbms_af.filter(sbms_af['year'] == year & sbms_af['month'] == month)['num_comments']
+        total = previous_month_submissions.select(F.sum(previous_month_submissions['num_comments'])).rdd.flatMap(lambda x: x).collect()[0]
+        contingency[0].append(total)
+
+        release_month_subs = sbms_af.filter((sbms_af['year'] == year) & (sbms_af['month'] == month))
+        total = release_month_subs.select(F.sum(release_month_subs['num_comments'])).rdd.flatMap(lambda x: x).collect()[0]
+        contingency[1].append(total)
 
     # chi contingency
     chi = chi2_contingency(contingency)
+    print(contingency, chi)
     
 main()
