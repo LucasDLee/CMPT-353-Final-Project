@@ -119,10 +119,10 @@ def main():
     # 2 loops are needed to filter the data from JikanPy to get release dates as the library does not have any built in F to handle this type of task
     # ike: can do this in one like this
     anime_info = [
-        # ("JuJutsuKaisen", jujutsu_kaisen),
-        # ("SpyxFamily", spy_x_family),
+        ("JuJutsuKaisen", jujutsu_kaisen),
+        ("SpyxFamily", spy_x_family),
         ("KimetsuNoYaiba", demon_slayer),
-        # ("Komi_san", komi_san)
+        ("Komi_san", komi_san)
     ]
     anime_list = list(map(f, anime_info))
     
