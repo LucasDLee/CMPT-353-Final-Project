@@ -5,7 +5,9 @@ from jikanpy import Jikan
 assert sys.version_info >= (3, 8)
 from pyspark.sql import SparkSession, types
 from pyspark.sql import functions as F
-from scipy.stats import normaltest, mannwhitneyu, chi2_contingency
+from scipy.stats import mannwhitneyu, chi2_contingency
+import matplotlib.pyplot as plt
+import seaborn
 
 reddit_submissions_path = 'Reddit-Cluster-Files/reddit-subset/submissions'
 reddit_comments_path = 'Reddit-Cluster-Files/reddit-subset/comments'
@@ -103,29 +105,28 @@ def f(anime):
     day = int((date[2].split("T"))[0])
     return name, year, month, day
     
-def perform_statistic_test(num_comments_list):
-    print(normaltest(num_comments_list))
         
 def main():
     spark = SparkSession.Builder.appName(SparkSession.builder, "reddit data").getOrCreate()
     assert spark.version >= '3.2'
     spark.sparkContext.setLogLevel('WARN')
     
+    ### Getting anime data ###
+    
     # Need to get anime releases manually as there is no formula to it
     # JikanPy has a rate limit of 3 requests per second and won't work with more than 3 requests unless we wait/sleep for a second
     jujutsu_kaisen = insert_jikan_anime(40748)
     spy_x_family = insert_jikan_anime(50265)
-    rezero = insert_jikan_anime(31240)
+    # rezero = insert_jikan_anime(31240)
     demon_slayer = insert_jikan_anime(38000)
     komi_san = insert_jikan_anime(48926)
     
     # Format: Subreddit_name: MyAnimeList data
     # 2 loops are needed to filter the data from JikanPy to get release dates as the library does not have any built in F to handle this type of task
-    # ike: can do this in one like this
     anime_info = [
         ("JuJutsuKaisen", jujutsu_kaisen),
         ("SpyxFamily", spy_x_family),
-        ("Re_Zero", rezero),
+        # ("Re_Zero", rezero),
         ("KimetsuNoYaiba", demon_slayer),
         ("Komi_san", komi_san)
     ]
@@ -149,34 +150,61 @@ def main():
 
     ### Getting data from the SFU Reddit cluster ###
     
-    # # Read the submissions files and filter based on the month and year of an anime release from anime_df
-    # reddit_submissions = spark.read.json(reddit_submissions_path, schema=submissions_schema)
+    # Read the submissions files and filter based on the month and year of an anime release from anime_df
     r_sub = spark.read.json(reddit_submissions_path, schema=submissions_schema)
     r_com = spark.read.json(reddit_comments_path, schema=comments_schema)
     
-    # # Used to write to an output folder if you're running the program on the cluster
-    # if len(sys.argv) > 2:
-    #     output = sys.argv[2]
-    #     combined_submissions = release_month_submissions.union(previous_month_submissions)
-    #     combined_submissions.write.json(output + "/submissions", mode='overwrite', compression='gzip')
-    
-    # # Combine the number of comments from each post in a subreddit into a list by grouping it based on the subreddit's name
-    # release_month_sub_grouped_comments = (release_month_submissions
-    #     .groupBy("subreddit")
-    #     .agg(F.collect_list("num_comments").alias("num_comments")))
-    # previous_month_sub_grouped_comments = (previous_month_submissions
-    #     .groupBy("subreddit")
-    #     .agg(F.collect_list("num_comments").alias("num_comments")))
+    # Filter the data from r_sub to match with our anime data
+    release_month_submissions = (r_sub
+        .join(anime_df.distinct(),
+            on=((r_sub.subreddit == anime_df.subreddit) & (r_sub.year == anime_df.year) & (r_sub.month == anime_df.month)),
+            how="inner")
+        .drop(anime_df.year, anime_df.month, anime_df.subreddit))
 
-    # ### Calculating p-values ###
-    # release_month_sub_grouped_comments.foreach(
-    #     lambda row: perform_statistic_test(row["num_comments"])
-    # )
-    
-    # previous_month_sub_grouped_comments.foreach(
-    #     lambda row: perform_statistic_test(row["num_comments"])
-    # )
+    previous_month_submissions = (r_sub
+        .join(anime_df.distinct(),
+            on=((r_sub.subreddit == anime_df.subreddit) & (r_sub.year == anime_df.previous_year) & (r_sub.month == anime_df.previous_month)),
+            how="inner")
+        .drop(anime_df.year, anime_df.month, anime_df.subreddit))
 
+    # Combine the number of comments from each post in a subreddit into a list by grouping it based on the subreddit's name
+    release_month_sub_grouped_comments = (release_month_submissions
+        .groupBy("subreddit")
+        .agg(F.count("num_comments").alias("release_total_comments"))
+        )
+    previous_month_sub_grouped_comments = (previous_month_submissions
+        .groupBy("subreddit")
+        .agg(F.count("num_comments").alias("previous_total_comments"))
+        )
+    grouped_sub_comments = release_month_sub_grouped_comments.join(previous_month_sub_grouped_comments, on="subreddit").toPandas()
+    
+    ### Visualizations ###
+    seaborn.set()
+    plt.figure(figsize=(10, 6))
+    bar_width = 0.4
+
+    index = range(len(grouped_sub_comments))
+    plt.bar(index, grouped_sub_comments['release_total_comments'], width=bar_width, label='After Release')
+    plt.bar(index, grouped_sub_comments['previous_total_comments'], width=bar_width, label='Before Release', alpha=0.7)
+
+    plt.xlabel('Subreddit')
+    plt.ylabel('Counts')
+    plt.title('Comments from Subreddits 1 Month Before and After the Anime Adapataion')
+    plt.xticks(index, grouped_sub_comments['subreddit'], rotation=0)
+    plt.legend()
+    plt.savefig("All Comment Changes")
+    
+    for _, row in grouped_sub_comments.iterrows():
+        plt.figure(figsize=(7,5))
+        plt.bar(["Before Release", "After Release"], [row["previous_total_comments"], row["release_total_comments"]])
+        plt.xlabel("Release Months")
+        plt.ylabel("Comment Count")
+        plt.title(f'Number of Comments for {row["subreddit"]}')
+        output = f'Subreddit: {row["subreddit"]}.png'
+        plt.savefig(output)
+    ### Visualizations finished ###
+    
+    ### Calculating p-values ###
     contingency = [[],[]]
     for anime in anime_list:
         name = anime[0]
