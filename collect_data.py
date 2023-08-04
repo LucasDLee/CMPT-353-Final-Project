@@ -1,17 +1,17 @@
 import sys
 import time
-import numpy as np
 from jikanpy import Jikan
+
 assert sys.version_info >= (3, 8)
 from pyspark.sql import SparkSession, types
 from pyspark.sql import functions as F
 from scipy.stats import mannwhitneyu, chi2_contingency
+
 import matplotlib.pyplot as plt
 import seaborn
 
 reddit_submissions_path = 'Reddit-Cluster-Files/reddit-subset/submissions'
 reddit_comments_path = 'Reddit-Cluster-Files/reddit-subset/comments'
-output = 'reddit-subset'
 
 comments_schema = types.StructType([
     types.StructField('archived', types.BooleanType()),
@@ -106,7 +106,8 @@ def f(anime):
     return name, year, month, day
         
 def main():
-    spark = SparkSession.Builder.appName(SparkSession.builder, "reddit data").getOrCreate()
+    ### Spark Setup ###
+    spark = SparkSession.Builder.appName(SparkSession.builder, "reddit anime/manga data").getOrCreate()
     assert spark.version >= '3.2'
     spark.sparkContext.setLogLevel('WARN')
     
@@ -116,15 +117,12 @@ def main():
     # JikanPy has a rate limit of 3 requests per second and won't work with more than 3 requests unless we wait/sleep for a second
     jujutsu_kaisen = insert_jikan_anime(40748)
     spy_x_family = insert_jikan_anime(50265)
-    demon_slayer = insert_jikan_anime(38000)
     komi_san = insert_jikan_anime(48926)
     
     # Format: Subreddit_name: MyAnimeList data
-    # 2 loops are needed to filter the data from JikanPy to get release dates as the library does not have any built in F to handle this type of task
     anime_info = [
         ("JuJutsuKaisen", jujutsu_kaisen),
         ("SpyxFamily", spy_x_family),
-        ("KimetsuNoYaiba", demon_slayer),
         ("Komi_san", komi_san)
     ]
     anime_list = list(map(f, anime_info))
@@ -144,13 +142,12 @@ def main():
     anime_df = anime_df.withColumn("previous_month",
         F.when(F.col("previous_month") == 0, 12)
          .otherwise(F.col("previous_month"))) # ensure that we have a valid month (e.g. Jan -> Dec)
-
+    
     ### Getting data from the SFU Reddit cluster ###
     
     # Read the submissions files and filter based on the month and year of an anime release from anime_df
     r_sub = spark.read.json(reddit_submissions_path, schema=submissions_schema)
     r_com = spark.read.json(reddit_comments_path, schema=comments_schema)
-
     
     # Filter the data from r_sub to match with our anime data
     release_month_submissions = (r_sub
@@ -179,14 +176,14 @@ def main():
     ### Visualizations ###
     seaborn.set()
     plt.figure(figsize=(10, 6))
-    bar_width = 0.4\
+    bar_width = 0.4
 
     index = range(len(grouped_sub_comments))
     plt.bar(index, grouped_sub_comments['release_total_comments'], width=bar_width, label='After Release')
     plt.bar(index, grouped_sub_comments['previous_total_comments'], width=bar_width, label='Before Release', alpha=0.7)
 
     plt.xlabel('Subreddit')
-    plt.ylabel('Counts')
+    plt.ylabel('Comment Count')
     plt.title('Comments from Subreddits 1 Month Before and After the Anime Adapataion')
     plt.xticks(index, grouped_sub_comments['subreddit'], rotation=0)
     plt.legend()
@@ -243,6 +240,7 @@ def main():
         y2 = coms_byMonth_af.select('count').rdd.flatMap(lambda x: x).collect()
         mw_month_sbm = mannwhitneyu(x1, y1, alternative='less')
         mw_month_com = mannwhitneyu(x2, y2, alternative='less')
+        print("\nSubreddit:", name, "\n")
         print(x1,y1,x2,y2)
         print(mw_month_com, mw_month_sbm)
 
@@ -258,8 +256,10 @@ def main():
         release_month_subs = sbms_af.filter((sbms_af['year'] == year) & (sbms_af['month'] == month))
         total = release_month_subs.select(F.sum(release_month_subs['num_comments'])).rdd.flatMap(lambda x: x).collect()[0]
         contingency[1].append(total)
+        print("\nFinish tests for", name, "\n")
 
     # chi contingency
+    print("\nChi2 Contingency Test")
     chi = chi2_contingency(contingency)
     print(contingency, chi)
     
