@@ -17,21 +17,23 @@ In this project, we applied statistical models to analyze shifts in p-values to 
 You will need the following tools to run the program:
 
 - Git
-- Python (3.8+)
+- Python (3.8+) and its corresponding libraries
+  - `sys`: Helped in setting version info
+  - `scipy.stats`: Needed for our statistical tests
+  - `matplotlib.pyplot`: Display our visualizations
+  - `seaborn`: Enhance our visualizations
 - Spark DataFrames (3.4.1+)
 - [JikanPy](https://github.com/abhinavk99/jikanpy): A Python wrapper for Jikan, an unofficial PHP API for MyAnimeList which holds anime release dates and more
+- [Reddit-Cluster-Files](https://github.sfu.ca/ldl5/Reddit-Cluster-Files): Our downloaded files from the SFU Reddit and Submissions cluster. Helpful in running `collect_data.py`
 
 ## Running the Program
 
-As getting SFU Cluster data takes a while, we have devised two ways to run this program. Using the following command lines, you can run each one depending on what tools you are have:
+As we needed to get data from SFU's Reddit cluster, we devised a couple of different programs that do different tasks to ensure our code is up and running.
 
-**Locally**:
+- `download_cluster_data.py`: Used to download our data from SFU's Reddit cluster
+- `collect_data.py`: Used to develop our visualizations and get the results from our data. Please ensure you have downloaded the Reddit files which can be found in the [Reddit-Cluster-Files](https://github.sfu.ca/ldl5/Reddit-Cluster-Files) repository
 
-> spark-submit collect_data.py reddit-subset/submissions
-
-**SFU Cluster**:
-
-> spark-submit collect_data.py /courses/datasets/reddit_submissions_repartitioned/ reddit-subset
+Both programs can be run like so: `spark-submit [insert your Python program here]`
 
 ## Authors
 
