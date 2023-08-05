@@ -111,16 +111,12 @@ def main():
     # JikanPy has a rate limit of 3 requests per second and won't work with more than 3 requests unless we wait/sleep for a second
     jujutsu_kaisen = insert_jikan_anime(40748)
     spy_x_family = insert_jikan_anime(50265)
-    rezero = insert_jikan_anime(31240)
-    demon_slayer = insert_jikan_anime(38000)
     komi_san = insert_jikan_anime(48926)
     
     # Format: Subreddit_name: MyAnimeList data
     anime_list = [
         ("JuJutsuKaisen", jujutsu_kaisen),
         ("SpyxFamily", spy_x_family),
-        ("Re_Zero", rezero),
-        ("KimetsuNoYaiba", demon_slayer),
         ("Komi_san", komi_san)
     ]
     
